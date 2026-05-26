@@ -1,10 +1,13 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import AssetDashboard from "./AssetDashboard.jsx";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
 import "./index.css";
+import { AuthProvider } from "./AuthProvider.jsx";
+import AuthGate from "./AuthGate.jsx";
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <AssetDashboard />
-  </React.StrictMode>
+createRoot(document.getElementById("root")).render(
+  <StrictMode>
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
+  </StrictMode>,
 );

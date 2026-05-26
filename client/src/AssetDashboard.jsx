@@ -33,66 +33,22 @@ import {
 } from "lucide-react";
 import NewsSection from "./NewsSection.jsx";
 import StockAnalysis from "./StockAnalysis.jsx";
+import { useHoldings, useTransactions, useSettings } from "./lib/useRemoteState.js";
+import { signOut, useAuth } from "./AuthProvider.jsx";
+import { apiPost, apiGet, RateLimitError } from "./lib/api.js";
 
 /* ──────────────────────────────────────────────────────────
-   자산관리 대시보드 v1
-   - localStorage 영구 저장 (asset_dashboard_v1_*)
+   자산관리 대시보드 v2
+   - Supabase Postgres + RLS 기반 멀티유저
    - 거래 내역 기반 평단 자동 계산 (이동평균법)
    - 차트: 카테고리 비중 / 목표vs실제 / 월별 추이 / 트리맵
    ────────────────────────────────────────────────────────── */
-
-const STORAGE_PREFIX = "asset_dashboard_v1_";
 
 const CATEGORIES = {
   kr: { label: "국장", color: "#60a5fa", suffix: "₩", locale: "ko-KR" },
   us: { label: "미장", color: "#f472b6", suffix: "$", locale: "en-US" },
   crypto: { label: "코인", color: "#fbbf24", suffix: "$", locale: "en-US" },
 };
-
-const SAMPLE_HOLDINGS = [
-  { id: 1, category: "kr", symbol: "005930.KS", name: "삼성전자", currentPrice: null },
-  { id: 2, category: "kr", symbol: "035720.KS", name: "카카오", currentPrice: null },
-  { id: 3, category: "us", symbol: "AAPL", name: "Apple", currentPrice: null },
-  { id: 4, category: "us", symbol: "NVDA", name: "NVIDIA", currentPrice: null },
-  { id: 5, category: "crypto", symbol: "BTC-USD", name: "Bitcoin", currentPrice: null },
-  { id: 6, category: "crypto", symbol: "ETH-USD", name: "Ethereum", currentPrice: null },
-];
-
-const SAMPLE_TRANSACTIONS = [
-  { id: 101, holdingId: 1, type: "buy", quantity: 50, price: 68000, date: "2025-06-15", fee: 0 },
-  { id: 102, holdingId: 2, type: "buy", quantity: 30, price: 52000, date: "2025-08-10", fee: 0 },
-  { id: 103, holdingId: 3, type: "buy", quantity: 10, price: 175.5, date: "2025-09-05", fee: 0 },
-  { id: 104, holdingId: 4, type: "buy", quantity: 5, price: 480, date: "2025-10-20", fee: 0 },
-  { id: 105, holdingId: 5, type: "buy", quantity: 0.05, price: 62000, date: "2025-11-01", fee: 0 },
-  { id: 106, holdingId: 6, type: "buy", quantity: 0.8, price: 3200, date: "2025-12-15", fee: 0 },
-];
-
-const DEFAULT_TARGET = { kr: 30, us: 50, crypto: 20 };
-
-/* ───── 커스텀 훅: localStorage 동기화 ───── */
-function useLocalStorage(key, initialValue) {
-  const storageKey = STORAGE_PREFIX + key;
-  const [state, setState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw == null) return initialValue;
-      return JSON.parse(raw);
-    } catch (e) {
-      console.warn(`useLocalStorage parse failed for ${storageKey}`, e);
-      return initialValue;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(state));
-    } catch (e) {
-      console.warn(`useLocalStorage save failed for ${storageKey}`, e);
-    }
-  }, [storageKey, state]);
-
-  return [state, setState];
-}
 
 /* ───── 거래 → 보유 종목 파생 계산 (이동평균법) ───── */
 function deriveHolding(holding, txs) {
@@ -223,10 +179,29 @@ function shadeColor(baseHex, idx, total) {
 
 /* ───── 메인 컴포넌트 ───── */
 export default function AssetDashboard() {
-  const [holdingsRaw, setHoldingsRaw] = useLocalStorage("holdings", SAMPLE_HOLDINGS);
-  const [transactions, setTransactions] = useLocalStorage("transactions", SAMPLE_TRANSACTIONS);
-  const [target, setTarget] = useLocalStorage("target", DEFAULT_TARGET);
-  const [fxRate, setFxRate] = useLocalStorage("fxRate", 1380);
+  const { user } = useAuth();
+  const {
+    holdings: holdingsRawDb,
+    loading: holdingsLoading,
+    add: addHoldingRemote,
+    remove: removeHoldingRemote,
+  } = useHoldings();
+  const {
+    transactions,
+    add: addTransactionRemote,
+    update: updateTransactionRemote,
+    remove: removeTransactionRemote,
+  } = useTransactions();
+  const { target, fxRate, saveTarget, saveFxRate } = useSettings();
+
+  // currentPrice는 DB에 저장하지 않고 런타임 상태(시세 API 응답)로만 보관
+  const [currentPrices, setCurrentPrices] = useState({}); // { [holdingId]: number }
+
+  // DB의 holdings + 런타임 currentPrice 머지
+  const holdingsRaw = useMemo(
+    () => holdingsRawDb.map((h) => ({ ...h, currentPrice: currentPrices[h.id] ?? null })),
+    [holdingsRawDb, currentPrices]
+  );
 
   const [tab, setTab] = useState("all"); // all | kr | us | crypto
   const [showAdd, setShowAdd] = useState(false);
@@ -255,7 +230,7 @@ export default function AssetDashboard() {
 
     try {
       const rate = await fetchFxRate();
-      setFxRate(rate);
+      await saveFxRate(rate);
     } catch (e) {
       errs.push(`환율(USD/KRW) 조회 실패: ${e.message} — 저장된 환율 사용`);
     }
@@ -264,16 +239,18 @@ export default function AssetDashboard() {
       try {
         const results = await fetchPricesBatch(holdingsRaw.map((h) => h.symbol));
         const bySymbol = Object.fromEntries(results.map((r) => [r.symbol, r]));
-        setHoldingsRaw((prev) =>
-          prev.map((h) => {
+        setCurrentPrices((prev) => {
+          const next = { ...prev };
+          for (const h of holdingsRaw) {
             const r = bySymbol[h.symbol];
             if (r && !r.error && r.price != null) {
-              return { ...h, currentPrice: r.price };
+              next[h.id] = r.price;
+            } else if (r?.error) {
+              errs.push(`${h.symbol}: ${r.error}`);
             }
-            if (r?.error) errs.push(`${h.symbol}: ${r.error}`);
-            return h;
-          })
-        );
+          }
+          return next;
+        });
       } catch (e) {
         errs.push(`시세 일괄 조회 실패: ${e.message}`);
       }
@@ -289,9 +266,7 @@ export default function AssetDashboard() {
     if (!h) return;
     try {
       const price = await fetchPrice(h.symbol);
-      setHoldingsRaw((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, currentPrice: price } : x))
-      );
+      setCurrentPrices((prev) => ({ ...prev, [id]: price }));
     } catch (e) {
       setErrors((p) => [...p, `${h.symbol} 시세 조회 실패: ${e.message}`]);
     }
@@ -396,19 +371,20 @@ export default function AssetDashboard() {
     tab === "all" ? holdings : holdings.filter((h) => h.category === tab);
 
   /* ───── 데이터 초기화 / 내보내기 / 가져오기 ───── */
-  function resetAllData() {
+  async function resetAllData() {
     if (
       !window.confirm(
         "모든 데이터를 삭제합니다.\n(보유 종목, 거래 내역, 목표 배분 모두 삭제)\n진행할까요?"
       )
     )
       return;
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith(STORAGE_PREFIX))
-      .forEach((k) => localStorage.removeItem(k));
-    setHoldingsRaw([]);
-    setTransactions([]);
-    setTarget(DEFAULT_TARGET);
+    // holdings 삭제 시 CASCADE로 transactions도 함께 삭제됨
+    for (const h of holdingsRawDb) {
+      await removeHoldingRemote(h.id);
+    }
+    setCurrentPrices({});
+    await saveTarget({ kr: 30, us: 50, crypto: 20 });
+    await saveFxRate(1380);
   }
 
   function exportJSON() {
@@ -437,16 +413,46 @@ export default function AssetDashboard() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
         const data = JSON.parse(ev.target.result);
         if (!Array.isArray(data.holdings) || !Array.isArray(data.transactions))
           throw new Error("형식 오류");
-        if (!window.confirm("현재 데이터를 덮어씁니다. 진행할까요?")) return;
-        setHoldingsRaw(data.holdings);
-        setTransactions(data.transactions);
-        if (data.target) setTarget(data.target);
-        if (data.fxRate) setFxRate(data.fxRate);
+        if (
+          !window.confirm(
+            "현재 데이터를 덮어씁니다 (기존 보유 종목·거래 내역 모두 삭제). 진행할까요?"
+          )
+        )
+          return;
+        // 기존 데이터 삭제 (CASCADE)
+        for (const h of holdingsRawDb) {
+          await removeHoldingRemote(h.id);
+        }
+        // 신규 holdings 추가 → 매핑 (old id → new id)
+        const idMap = new Map();
+        for (const h of data.holdings) {
+          const created = await addHoldingRemote({
+            category: h.category,
+            symbol: h.symbol,
+            name: h.name,
+          });
+          idMap.set(h.id, created.id);
+        }
+        // transactions 추가 (holdingId 매핑)
+        for (const t of data.transactions) {
+          const newHoldingId = idMap.get(t.holdingId);
+          if (newHoldingId == null) continue;
+          await addTransactionRemote({
+            holdingId: newHoldingId,
+            type: t.type,
+            quantity: t.quantity,
+            price: t.price,
+            date: t.date,
+            fee: t.fee || 0,
+          });
+        }
+        if (data.target) await saveTarget(data.target);
+        if (data.fxRate) await saveFxRate(data.fxRate);
       } catch (err) {
         alert("가져오기 실패: " + err.message);
       }
@@ -456,49 +462,51 @@ export default function AssetDashboard() {
   }
 
   /* ───── 거래 CRUD ───── */
-  function addTransaction(tx) {
-    setTransactions((p) => [
-      ...p,
-      { ...tx, id: Date.now() + Math.random() },
-    ]);
+  async function addTransaction(tx) {
+    await addTransactionRemote(tx);
   }
-  function updateTransaction(id, patch) {
-    setTransactions((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  async function updateTransaction(id, patch) {
+    await updateTransactionRemote(id, patch);
   }
-  function deleteTransaction(id) {
+  async function deleteTransaction(id) {
     if (!window.confirm("이 거래를 삭제할까요?")) return;
-    setTransactions((p) => p.filter((t) => t.id !== id));
+    await removeTransactionRemote(id);
   }
 
   /* ───── 종목 CRUD ───── */
-  function addHolding({ category, symbol, name, initialQuantity, initialPrice, initialDate }) {
-    const newId = Date.now();
-    setHoldingsRaw((p) => [
-      ...p,
-      { id: newId, category, symbol, name, currentPrice: null },
-    ]);
+  async function addHolding({ category, symbol, name, initialQuantity, initialPrice, initialDate }) {
+    const created = await addHoldingRemote({ category, symbol, name });
     if (initialQuantity > 0 && initialPrice > 0) {
-      setTransactions((p) => [
-        ...p,
-        {
-          id: Date.now() + 1,
-          holdingId: newId,
-          type: "buy",
-          quantity: initialQuantity,
-          price: initialPrice,
-          date: initialDate || new Date().toISOString().slice(0, 10),
-          fee: 0,
-        },
-      ]);
+      await addTransactionRemote({
+        holdingId: created.id,
+        type: "buy",
+        quantity: initialQuantity,
+        price: initialPrice,
+        date: initialDate || new Date().toISOString().slice(0, 10),
+        fee: 0,
+      });
     }
   }
-  function deleteHolding(id) {
+  async function deleteHolding(id) {
     if (!window.confirm("이 종목과 관련 거래 내역을 모두 삭제합니다.")) return;
-    setHoldingsRaw((p) => p.filter((h) => h.id !== id));
-    setTransactions((p) => p.filter((t) => t.holdingId !== id));
+    // DB의 holdings 삭제 시 CASCADE로 transactions도 함께 삭제됨
+    await removeHoldingRemote(id);
+    setCurrentPrices((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   const txDetailHolding = holdings.find((h) => h.id === txDetailHoldingId);
+
+  if (holdingsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0a0e1a] text-slate-400 text-sm">
+        데이터 로딩 중…
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0e1a] text-slate-100 font-sans">
@@ -570,6 +578,15 @@ export default function AssetDashboard() {
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               {loading ? "조회중..." : "시세 새로고침"}
             </button>
+            {user && (
+              <button
+                onClick={signOut}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-slate-700 hover:border-slate-500 text-xs transition"
+                title="로그아웃"
+              >
+                {user.email} · 로그아웃
+              </button>
+            )}
           </div>
         </header>
 
@@ -887,11 +904,7 @@ export default function AssetDashboard() {
                   onRefresh={() => refreshOne(h.id)}
                   onDelete={() => deleteHolding(h.id)}
                   onManualPrice={(price) => {
-                    setHoldingsRaw((p) =>
-                      p.map((x) =>
-                        x.id === h.id ? { ...x, currentPrice: price } : x
-                      )
-                    );
+                    setCurrentPrices((prev) => ({ ...prev, [h.id]: price }));
                   }}
                 />
               ))}
@@ -900,12 +913,11 @@ export default function AssetDashboard() {
         </section>
 
         <footer className="text-[11px] text-slate-600 text-center leading-relaxed">
-          시세 데이터: 로컬 백엔드{" "}
+          시세 데이터: 백엔드{" "}
           <code className="text-slate-500">{API_BASE || "/api (vite proxy)"}</code>{" "}
           (Yahoo Finance / KIS Developers) · 환율 USD/KRW
           <br />
-          데이터는 브라우저 localStorage에 저장됩니다 (
-          <code className="text-slate-500">{STORAGE_PREFIX}*</code>)
+          데이터는 Supabase Postgres에 본인 계정 단위로 저장됩니다.
         </footer>
       </div>
 
@@ -925,8 +937,8 @@ export default function AssetDashboard() {
         <TargetModal
           target={target}
           onClose={() => setShowTarget(false)}
-          onSave={(t) => {
-            setTarget(t);
+          onSave={async (t) => {
+            await saveTarget(t);
             setShowTarget(false);
           }}
         />

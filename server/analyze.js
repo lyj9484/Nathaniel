@@ -1,9 +1,12 @@
 /* OpenAI 호출 + 프롬프트 구성 + 캐시 키 */
 import { createHash } from "node:crypto";
 import OpenAI from "openai";
+import { chargeAiUsage } from "./lib/usage.js";
 
 const MODEL = "gpt-4o-mini";
 const MAX_TOKENS = 2048;
+
+const DAILY_LIMIT = Number(process.env.DAILY_AI_LIMIT) || 20;
 
 const MARKET_LABELS = { kr: "국장 (한국)", us: "미장 (미국)", crypto: "코인" };
 
@@ -124,7 +127,8 @@ function getClient() {
   return openaiClient;
 }
 
-export async function analyzeNews(news, holdings) {
+export async function analyzeNews(news, holdings, userId) {
+  if (userId) await chargeAiUsage(userId, DAILY_LIMIT);
   const client = getClient();
   const userMessage = buildUserMessage(news, holdings);
 
@@ -229,7 +233,8 @@ function buildStockUserMessage({ holding, stats, recentPoints, analyst }) {
   return lines.join("\n");
 }
 
-export async function analyzeStock({ holding, stats, points, analyst }) {
+export async function analyzeStock({ holding, stats, points, analyst }, userId) {
+  if (userId) await chargeAiUsage(userId, DAILY_LIMIT);
   const client = getClient();
   const recentPoints = points.slice(-30);
   const userMessage = buildStockUserMessage({ holding, stats, recentPoints, analyst });

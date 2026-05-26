@@ -1,0 +1,23 @@
+{
+  "name": "asset-dashboard-server",
+  "version": "1.0.0",
+  "description": "자산관리 대시보드 백엔드 (Yahoo Finance + KIS Developers)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cache": "^5.1.2",
+    "openai": "^4.104.0",
+    "rss-parser": "^3.13.0"
+  }
+}

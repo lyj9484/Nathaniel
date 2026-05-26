@@ -22,20 +22,13 @@ async function createTestUser(email) {
 }
 
 async function clientForUser(email) {
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-  });
-  if (error) throw error;
-  // user의 access token 발급 (service role의 admin API)
-  const { data: sess } = await admin.auth.admin.createSession?.({ user_id: data.user.id }).catch(() => ({ data: null }));
-  // fallback: password 로그인
+  // password로 로그인 (createUser 시 set한 password 사용)
   const cli = createClient(URL, ANON, { auth: { persistSession: false } });
-  const { data: signin, error: e2 } = await cli.auth.signInWithPassword({
+  const { error } = await cli.auth.signInWithPassword({
     email,
     password: "TestPass123!@#",
   });
-  if (e2) throw e2;
+  if (error) throw error;
   return cli;
 }
 
@@ -96,11 +89,15 @@ async function main() {
   assert.ok(txErr, "must fail RLS");
   console.log("✓ 4) Cross-user holding_id INSERT rejected:", txErr.message);
 
-  // 5) ai_usage UPDATE 시도
+  // 5) ai_usage UPDATE 시도 — RLS는 정책 없으면 0행 영향 + error null로 응답하므로
+  //    실제로 값이 변경됐는지 admin으로 재조회해 확인한다
   await admin.from("ai_usage").insert({ user_id: a.id, usage_date: "2026-01-01", count: 5 });
-  const { error: auErr } = await cliA.from("ai_usage").update({ count: 0 }).eq("user_id", a.id);
-  assert.ok(auErr, "ai_usage UPDATE must be blocked");
-  console.log("✓ 5) ai_usage UPDATE blocked");
+  await cliA.from("ai_usage").update({ count: 0 }).eq("user_id", a.id);
+  const { data: auCheck } = await admin.from("ai_usage")
+    .select("count").eq("user_id", a.id).eq("usage_date", "2026-01-01").single();
+  assert.equal(auCheck.count, 5, "ai_usage count must remain 5 (UPDATE blocked by RLS)");
+  console.log("✓ 5) ai_usage UPDATE blocked (count remained 5)");
+  await admin.from("ai_usage").delete().eq("user_id", a.id);
 
   // 6) 화이트리스트 거부
   const { error: signupErr } = await admin.auth.admin.createUser({

@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import NodeCache from "node-cache";
 
 import {
@@ -17,12 +19,20 @@ import {
   computeStats,
   analyzeStock,
 } from "./analyze.js";
+import { authMiddleware } from "./middleware/auth.js";
+import { errorHandler, ValidationError } from "./lib/errors.js";
+import { NewsBodySchema, StockSymbolSchema, StockAnalysisBodySchema } from "./validators.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 
-app.use(cors());
-app.use(express.json());
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:5173")
+  .split(",").map((s) => s.trim());
+
+app.use(helmet());
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: false }));
+app.use(express.json({ limit: "10kb" }));
+app.use(rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
 
 // 5분 메모리 캐시
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
@@ -51,6 +61,7 @@ async function getCachedPrice(symbol) {
 
 /* ───── 라우트 ───── */
 
+// health는 인증 없이
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
@@ -60,6 +71,9 @@ app.get("/api/health", (req, res) => {
     uptime: process.uptime(),
   });
 });
+
+// 이하 모든 /api/* 라우트 보호
+app.use("/api", authMiddleware);
 
 app.get("/api/price/:symbol", async (req, res) => {
   const { symbol } = req.params;
@@ -105,25 +119,26 @@ app.get("/api/fx/usdkrw", async (req, res) => {
   }
 });
 
-app.post("/api/news", async (req, res) => {
-  const holdings = Array.isArray(req.body?.holdings) ? req.body.holdings : [];
-  const force = req.query.force === "1";
-
-  if (!isAiConfigured()) {
-    return res.status(503).json({ error: "ai_disabled" });
-  }
-
-  const key = makeCacheKey(holdings);
-  if (!force) {
-    const cached = cache.get(key);
-    if (cached) return res.json(cached);
-  }
-
+app.post("/api/news", async (req, res, next) => {
   try {
-    const news = await fetchAllMarketsNews(5);
-    const analysis = await analyzeNews(news, holdings);
+    const parsed = NewsBodySchema.safeParse(req.body);
+    if (!parsed.success) throw new ValidationError(parsed.error.flatten());
+    const { holdings } = parsed.data;
+    const force = req.query.force === "1";
 
-    // 응답: 시장별 summary + impacts (Claude) + headlines (RSS)
+    if (!isAiConfigured()) {
+      return res.status(503).json({ error: "ai_disabled" });
+    }
+
+    const key = makeCacheKey(holdings);
+    if (!force) {
+      const cached = cache.get(key);
+      if (cached) return res.json(cached);          // ★ 캐시 hit → charge 안 함
+    }
+
+    const news = await fetchAllMarketsNews(5);
+    const analysis = await analyzeNews(news, holdings, req.user.id);   // ★ userId
+
     const markets = {};
     for (const m of ["kr", "us", "crypto"]) {
       markets[m] = {
@@ -132,19 +147,11 @@ app.post("/api/news", async (req, res) => {
         headlines: news[m] || [],
       };
     }
-    const payload = {
-      fetchedAt: new Date().toISOString(),
-      markets,
-    };
-    // 뉴스는 1시간 TTL (기본 stdTTL=300은 시세용)
+    const payload = { fetchedAt: new Date().toISOString(), markets };
     cache.set(key, payload, 3600);
     res.json(payload);
   } catch (e) {
-    console.error("[news]", e);
-    if (e.code === "ai_disabled") {
-      return res.status(503).json({ error: "ai_disabled" });
-    }
-    res.status(500).json({ error: e.message });
+    next(e);
   }
 });
 
@@ -155,32 +162,36 @@ const CHART_PERIODS = {
   monthly: { range: "5y", interval: "1mo", label: "5Y" },
 };
 
-app.post("/api/stock/:symbol/analysis", async (req, res) => {
-  const { symbol } = req.params;
-  const holding = {
-    symbol,
-    name: req.body?.name || symbol,
-    category: req.body?.category || "us",
-    currentPrice: Number(req.body?.currentPrice) || null,
-    avgPrice: Number(req.body?.avgPrice) || null,
-    quantity: Number(req.body?.quantity) || null,
-  };
-  const force = req.query.force === "1";
-  const period = CHART_PERIODS[req.query.period] ? req.query.period : "daily";
-
-  if (!isAiConfigured()) {
-    return res.status(503).json({ error: "ai_disabled" });
-  }
-
-  // 분리된 캐시: AI 분석은 symbol 단위, 차트는 (symbol, period) 단위
-  const aiKey = `stock-ai:${symbol}`;
-  const chartKey = `stock-chart:${symbol}:${period}`;
-
+app.post("/api/stock/:symbol/analysis", async (req, res, next) => {
   try {
+    const symbolParse = StockSymbolSchema.safeParse(req.params.symbol);
+    if (!symbolParse.success) throw new ValidationError({ symbol: "invalid" });
+    const symbol = symbolParse.data;
+
+    const bodyParse = StockAnalysisBodySchema.safeParse(req.body || {});
+    if (!bodyParse.success) throw new ValidationError(bodyParse.error.flatten());
+
+    const holding = {
+      symbol,
+      name: bodyParse.data.name || symbol,
+      category: bodyParse.data.category || "us",
+      currentPrice: bodyParse.data.currentPrice ?? null,
+      avgPrice: bodyParse.data.avgPrice ?? null,
+      quantity: bodyParse.data.quantity ?? null,
+    };
+    const force = req.query.force === "1";
+    const period = CHART_PERIODS[req.query.period] ? req.query.period : "daily";
+
+    if (!isAiConfigured()) {
+      return res.status(503).json({ error: "ai_disabled" });
+    }
+
+    const aiKey = `stock-ai:${symbol}`;
+    const chartKey = `stock-chart:${symbol}:${period}`;
+
     let aiPart = force ? null : cache.get(aiKey);
     let chartPart = force ? null : cache.get(chartKey);
 
-    // 1) AI/통계/애널리스트 부분 (항상 6mo 일봉 기준)
     if (!aiPart) {
       const [histRes, analystRes] = await Promise.allSettled([
         fetchYahooHistorical(symbol, "6mo", "1d"),
@@ -196,17 +207,14 @@ app.post("/api/stock/:symbol/analysis", async (req, res) => {
         return res.status(422).json({ error: "no price data available" });
       }
       const stats = computeStats(points, current);
-      const analysisResult = await analyzeStock({
-        holding: { ...holding, currentPrice: current },
-        stats,
-        points,
-        analyst,
-      });
+      const analysisResult = await analyzeStock(
+        { holding: { ...holding, currentPrice: current }, stats, points, analyst },
+        req.user.id                                                      // ★ userId
+      );
       aiPart = { stats, analyst, analysis: analysisResult.analysis };
       cache.set(aiKey, aiPart, 3600);
     }
 
-    // 2) 차트 부분 (period 따라 다름)
     if (!chartPart) {
       const { range, interval, label } = CHART_PERIODS[period];
       const { points, currency } = await fetchYahooHistorical(symbol, range, interval);
@@ -222,11 +230,7 @@ app.post("/api/stock/:symbol/analysis", async (req, res) => {
       analysis: aiPart.analysis,
     });
   } catch (e) {
-    console.error("[stock]", e);
-    if (e.code === "ai_disabled") {
-      return res.status(503).json({ error: "ai_disabled" });
-    }
-    res.status(500).json({ error: e.message });
+    next(e);
   }
 });
 
@@ -235,6 +239,8 @@ app.post("/api/cache/clear", (req, res) => {
   cache.flushAll();
   res.json({ ok: true });
 });
+
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`asset-dashboard server: http://localhost:${PORT}`);

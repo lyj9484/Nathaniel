@@ -88,31 +88,22 @@ function deriveHolding(holding, txs) {
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 async function fetchPrice(symbol) {
-  const res = await fetch(
-    `${API_BASE}/api/price/${encodeURIComponent(symbol)}`
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.error || data.price == null) {
-    throw new Error(data.error || `HTTP ${res.status}`);
+  const data = await apiGet(`/api/price/${encodeURIComponent(symbol)}`);
+  if (data?.error || data?.price == null) {
+    throw new Error(data?.error || "price unavailable");
   }
   return data.price;
 }
 
 async function fetchPricesBatch(symbols) {
   if (symbols.length === 0) return [];
-  const url = `${API_BASE}/api/prices?symbols=${encodeURIComponent(
-    symbols.join(",")
-  )}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  return apiGet(`/api/prices?symbols=${encodeURIComponent(symbols.join(","))}`);
 }
 
 async function fetchFxRate() {
-  const res = await fetch(`${API_BASE}/api/fx/usdkrw`);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.error || data.price == null) {
-    throw new Error(data.error || `HTTP ${res.status}`);
+  const data = await apiGet(`/api/fx/usdkrw`);
+  if (data?.error || data?.price == null) {
+    throw new Error(data?.error || "fx unavailable");
   }
   return data.price;
 }

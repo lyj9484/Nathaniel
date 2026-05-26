@@ -7,8 +7,7 @@ import {
   AlertCircle,
   ExternalLink,
 } from "lucide-react";
-
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+import { apiPost, RateLimitError } from "./lib/api.js";
 
 const MARKET_META = {
   kr: { label: "국장", color: "#60a5fa" },
@@ -25,25 +24,21 @@ export default function NewsSection({ holdings = [], activeTab }) {
     setLoading(true);
     setError(null);
     try {
-      const url = `${API_BASE}/api/news${force ? "?force=1" : ""}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          holdings: holdings.map((h) => ({
-            symbol: h.symbol,
-            name: h.name,
-            category: h.category,
-          })),
-        }),
+      const path = `/api/news${force ? "?force=1" : ""}`;
+      const body = await apiPost(path, {
+        holdings: holdings.map((h) => ({
+          symbol: h.symbol,
+          name: h.name,
+          category: h.category,
+        })),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body.error || `HTTP ${res.status}`);
-      }
       setData(body);
     } catch (e) {
-      setError(e.message);
+      if (e instanceof RateLimitError) {
+        setError(`오늘 AI 분석 한도(${e.limit}회)를 초과했습니다`);
+      } else {
+        setError(e.code || e.message);
+      }
     } finally {
       setLoading(false);
     }

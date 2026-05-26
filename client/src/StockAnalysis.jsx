@@ -16,8 +16,7 @@ import {
   Thermometer,
   MapPin,
 } from "lucide-react";
-
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+import { apiPost, RateLimitError } from "./lib/api.js";
 
 const CATEGORY_COLORS = {
   kr: "#60a5fa",
@@ -72,23 +71,21 @@ export default function StockAnalysis({ holding }) {
       const p = periodOverride || period;
       const params = new URLSearchParams({ period: p });
       if (force) params.set("force", "1");
-      const url = `${API_BASE}/api/stock/${encodeURIComponent(holding.symbol)}/analysis?${params.toString()}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: holding.name,
-          category: holding.category,
-          currentPrice: holding.currentPrice,
-          avgPrice: holding.avgPrice,
-          quantity: holding.quantity,
-        }),
+      const path = `/api/stock/${encodeURIComponent(holding.symbol)}/analysis?${params.toString()}`;
+      const body = await apiPost(path, {
+        name: holding.name,
+        category: holding.category,
+        currentPrice: holding.currentPrice,
+        avgPrice: holding.avgPrice,
+        quantity: holding.quantity,
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
       setData(body);
     } catch (e) {
-      setError(e.message);
+      if (e instanceof RateLimitError) {
+        setError(`오늘 AI 분석 한도(${e.limit}회)를 초과했습니다`);
+      } else {
+        setError(e.code || e.message);
+      }
     } finally {
       setLoading(false);
     }

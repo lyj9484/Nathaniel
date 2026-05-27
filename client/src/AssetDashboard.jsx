@@ -1560,8 +1560,8 @@ function TransactionsModal({
           <TransactionForm
             category={holding.category}
             onCancel={() => setAdding(false)}
-            onSubmit={(tx) => {
-              onAdd(tx);
+            onSubmit={async (tx) => {
+              await onAdd(tx);
               setAdding(false);
             }}
           />
@@ -1581,8 +1581,8 @@ function TransactionsModal({
                 category={holding.category}
                 initial={tx}
                 onCancel={() => setEditingId(null)}
-                onSubmit={(patch) => {
-                  onUpdate(tx.id, patch);
+                onSubmit={async (patch) => {
+                  await onUpdate(tx.id, patch);
                   setEditingId(null);
                 }}
               />
@@ -1698,12 +1698,18 @@ function TransactionForm({ category, initial, onSubmit, onCancel }) {
   const [fee, setFee] = useState(initial?.fee?.toString() || "0");
   const c = CATEGORIES[category];
 
-  function submit() {
+  const [submitting, setSubmitting] = useState(false);
+  async function submit() {
     const q = parseFloat(quantity);
     const p = parseFloat(price);
     const f = parseFloat(fee) || 0;
-    if (!q || !p || !date) return;
-    onSubmit({ type, quantity: q, price: p, date, fee: f });
+    if (!q || !p || !date || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit({ type, quantity: q, price: p, date, fee: f });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -1778,13 +1784,15 @@ function TransactionForm({ category, initial, onSubmit, onCancel }) {
       <div className="flex items-center gap-2">
         <button
           onClick={submit}
-          className="px-3 py-1.5 bg-amber-400 text-slate-950 rounded text-xs font-medium hover:bg-amber-300 transition"
+          disabled={submitting}
+          className="px-3 py-1.5 bg-amber-400 text-slate-950 rounded text-xs font-medium hover:bg-amber-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          저장
+          {submitting ? "저장 중…" : "저장"}
         </button>
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 border border-slate-700 text-slate-400 rounded text-xs hover:border-slate-500 transition"
+          disabled={submitting}
+          className="px-3 py-1.5 border border-slate-700 text-slate-400 rounded text-xs hover:border-slate-500 transition disabled:opacity-50"
         >
           취소
         </button>

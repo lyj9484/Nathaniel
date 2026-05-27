@@ -916,8 +916,8 @@ export default function AssetDashboard() {
       {showAdd && (
         <AddModal
           onClose={() => setShowAdd(false)}
-          onAdd={(item) => {
-            addHolding(item);
+          onAdd={async (item) => {
+            await addHolding(item);
             setShowAdd(false);
           }}
         />
@@ -1196,16 +1196,22 @@ function AddModal({ onClose, onAdd }) {
   const [avgPrice, setAvgPrice] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
 
-  function submit() {
-    if (!symbol || !name || !quantity || !avgPrice) return;
-    onAdd({
-      category,
-      symbol: symbol.trim(),
-      name: name.trim(),
-      initialQuantity: parseFloat(quantity),
-      initialPrice: parseFloat(avgPrice),
-      initialDate: date,
-    });
+  const [submitting, setSubmitting] = useState(false);
+  async function submit() {
+    if (!symbol || !name || !quantity || !avgPrice || submitting) return;
+    setSubmitting(true);
+    try {
+      await onAdd({
+        category,
+        symbol: symbol.trim(),
+        name: name.trim(),
+        initialQuantity: parseFloat(quantity),
+        initialPrice: parseFloat(avgPrice),
+        initialDate: date,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const hints = {
@@ -1327,9 +1333,10 @@ function AddModal({ onClose, onAdd }) {
 
           <button
             onClick={submit}
-            className="w-full mt-2 py-3 bg-amber-400 text-slate-950 rounded-lg font-medium hover:bg-amber-300 transition"
+            disabled={submitting}
+            className="w-full mt-2 py-3 bg-amber-400 text-slate-950 rounded-lg font-medium hover:bg-amber-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            추가하기
+            {submitting ? "추가하는 중…" : "추가하기"}
           </button>
         </div>
       </div>

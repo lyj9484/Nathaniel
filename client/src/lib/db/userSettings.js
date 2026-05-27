@@ -21,9 +21,11 @@ export async function getSettings() {
 // authenticated user explicitly. RLS would already enforce this, but PostgREST
 // still requires us to be explicit.
 async function currentUserId() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("not_authenticated");
-  return user.id;
+  // getSession() reads from localStorage; getUser() would hit /auth/v1/user
+  // over the network each call.
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) throw new Error("not_authenticated");
+  return session.user.id;
 }
 
 export async function updateTarget(target) {

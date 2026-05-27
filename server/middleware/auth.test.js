@@ -1,18 +1,30 @@
-import { test } from "node:test";
+import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { SignJWT } from "jose";
-import { authMiddleware } from "./auth.js";
+import { SignJWT, generateKeyPair, exportJWK, createLocalJWKSet } from "jose";
+import { authMiddleware, _setJwksForTests } from "./auth.js";
 
-const SECRET = "test-secret-1234567890";
-process.env.SUPABASE_JWT_SECRET = SECRET;
 process.env.SUPABASE_URL = "https://proj.supabase.co";
 
-async function makeToken({ sub = "user-123", email = "a@b.com", expiresIn = "1h", issuer } = {}) {
+let privateKey;
+const KID = "test-kid";
+
+before(async () => {
+  const kp = await generateKeyPair("ES256");
+  privateKey = kp.privateKey;
+  const publicJwk = await exportJWK(kp.publicKey);
+  publicJwk.kid = KID;
+  publicJwk.use = "sig";
+  publicJwk.alg = "ES256";
+  const localJwks = createLocalJWKSet({ keys: [publicJwk] });
+  _setJwksForTests(localJwks);
+});
+
+async function makeToken({ sub = "user-123", email = "a@b.com", expiresIn = "1h", issuer, kid = KID } = {}) {
   return new SignJWT({ sub, email })
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: "ES256", kid })
     .setIssuer(issuer ?? "https://proj.supabase.co/auth/v1")
     .setExpirationTime(expiresIn)
-    .sign(new TextEncoder().encode(SECRET));
+    .sign(privateKey);
 }
 
 function mockReq(token) {
@@ -43,7 +55,7 @@ test("auth: missing Authorization → 401 no_token", async () => {
 });
 
 test("auth: expired token → 401 invalid_token", async () => {
-  const token = await makeToken({ expiresIn: "-1m" }); // already expired
+  const token = await makeToken({ expiresIn: "-1m" });
   const res = mockRes();
   await authMiddleware(mockReq(token), res, () => assert.fail("next must not be called"));
   assert.equal(res.statusCode, 401);
@@ -59,6 +71,13 @@ test("auth: wrong issuer → 401", async () => {
 
 test("auth: tampered signature → 401", async () => {
   const token = (await makeToken()).slice(0, -3) + "XYZ";
+  const res = mockRes();
+  await authMiddleware(mockReq(token), res, () => assert.fail("next must not be called"));
+  assert.equal(res.statusCode, 401);
+});
+
+test("auth: unknown kid → 401", async () => {
+  const token = await makeToken({ kid: "wrong-kid" });
   const res = mockRes();
   await authMiddleware(mockReq(token), res, () => assert.fail("next must not be called"));
   assert.equal(res.statusCode, 401);

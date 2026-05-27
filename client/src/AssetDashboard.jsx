@@ -183,7 +183,7 @@ export default function AssetDashboard() {
     update: updateTransactionRemote,
     remove: removeTransactionRemote,
   } = useTransactions();
-  const { target, fxRate, saveTarget, saveFxRate } = useSettings();
+  const { target, fxRate, loading: settingsLoading, saveTarget, saveFxRate } = useSettings();
 
   // currentPrice는 DB에 저장하지 않고 런타임 상태(시세 API 응답)로만 보관
   const [currentPrices, setCurrentPrices] = useState({}); // { [holdingId]: number }
@@ -210,9 +210,10 @@ export default function AssetDashboard() {
   );
 
   useEffect(() => {
+    if (settingsLoading) return;
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [settingsLoading]);
 
   async function refreshAll() {
     setLoading(true);

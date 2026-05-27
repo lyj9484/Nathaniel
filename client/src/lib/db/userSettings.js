@@ -17,16 +17,27 @@ export async function getSettings() {
   return { target: data.target, fxRate: Number(data.fx_rate) };
 }
 
+// PostgREST refuses UPDATE without a WHERE filter (21000), so we scope to the
+// authenticated user explicitly. RLS would already enforce this, but PostgREST
+// still requires us to be explicit.
+async function currentUserId() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("not_authenticated");
+  return user.id;
+}
+
 export async function updateTarget(target) {
+  const uid = await currentUserId();
   const { data, error } = await supabase
-    .from("user_settings").update({ target }).select().single();
+    .from("user_settings").update({ target }).eq("user_id", uid).select().single();
   if (error) throw error;
   return data.target;
 }
 
 export async function updateFxRate(fxRate) {
+  const uid = await currentUserId();
   const { data, error } = await supabase
-    .from("user_settings").update({ fx_rate: fxRate }).select().single();
+    .from("user_settings").update({ fx_rate: fxRate }).eq("user_id", uid).select().single();
   if (error) throw error;
   return Number(data.fx_rate);
 }

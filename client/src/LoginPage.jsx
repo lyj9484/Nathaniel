@@ -31,15 +31,9 @@ export default function LoginPage() {
         <p className="text-sm text-slate-500 mb-6">초대받은 분만 이용 가능</p>
         <button
           onClick={() => signInWith("google")}
-          className="w-full mb-3 py-3 rounded-xl border border-slate-300 hover:bg-slate-50 font-medium"
+          className="w-full py-3 rounded-xl border border-slate-300 hover:bg-slate-50 font-medium"
         >
           Google로 시작
-        </button>
-        <button
-          onClick={() => signInWith("kakao")}
-          className="w-full py-3 rounded-xl bg-yellow-300 hover:bg-yellow-400 font-medium"
-        >
-          카카오로 시작
         </button>
         {error && (
           <div className="mt-6 p-3 rounded-lg bg-red-50 text-red-700 text-sm">

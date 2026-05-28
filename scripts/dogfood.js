@@ -184,9 +184,97 @@ const todayRow = usage.find((u) => u.usage_date === today);
 if (todayRow && todayRow.count >= 20) ok(`ai_usage.count = ${todayRow.count} (≥20)`);
 else fail(`ai_usage row missing or below limit: ${JSON.stringify(todayRow)}`);
 
+// ── 9. 피드백 제출 (사용자 경로) ───────────────────────────────────────────
+log("submitting feedback as regular user…");
+const fbRes = await fetch(`${API_URL}/api/feedback`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  body: JSON.stringify({
+    category: "ui",
+    body: "dogfood 자동 테스트 — UI 카테고리",
+    page_url: "http://localhost:5173/#/",
+  }),
+});
+if (fbRes.status === 201) ok("POST /api/feedback returned 201");
+else fail(`POST /api/feedback returned ${fbRes.status}`);
+
+// 두 번째 호출은 rate limit으로 429 기대
+const fbRes2 = await fetch(`${API_URL}/api/feedback`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  body: JSON.stringify({ category: "other", body: "두 번째 시도" }),
+});
+if (fbRes2.status === 429) ok("rate limit (분당 1건) triggers 429");
+else fail(`expected 429 on 2nd feedback, got ${fbRes2.status}`);
+
+// admin 권한 없는 사용자가 admin 라우트 호출 → 403
+const adminDeny = await fetch(`${API_URL}/api/admin/feedback`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+if (adminDeny.status === 403) ok("non-admin user → 403 on /api/admin/feedback");
+else fail(`expected 403 for non-admin, got ${adminDeny.status}`);
+
+// admin 사용자(콜리)에게는 200 — 토큰을 만들려면 service_role로 user 직접 발급
+const adminEmail = (process.env.ADMIN_EMAILS || "").split(",")[0]?.trim();
+if (adminEmail) {
+  // admin 사용자 임시 생성 + 세션 발급. 화이트리스트 우회 필요.
+  // 사전에 존재하던 admin 계정이면 절대 deleteUser 호출 금지 (실제 운영 계정 보호).
+  const allowedEntryExisted = (
+    await admin.from("allowed_emails").select("email").eq("email", adminEmail).maybeSingle()
+  ).data != null;
+  if (!allowedEntryExisted) await admin.from("allowed_emails").insert({ email: adminEmail });
+
+  let adminUser = (await admin.auth.admin.listUsers()).data.users.find((u) => u.email === adminEmail);
+  let createdAdmin = false;
+  if (!adminUser) {
+    const { data: created } = await admin.auth.admin.createUser({
+      email: adminEmail, password: "AdminTest1!@#", email_confirm: true,
+    });
+    adminUser = created.user;
+    createdAdmin = true;
+  }
+  const cli = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+  const { data: sess, error: sessErr } = await cli.auth.signInWithPassword({
+    email: adminEmail, password: "AdminTest1!@#",
+  });
+  if (sessErr) {
+    log("admin sign-in failed — skipping admin GET check:", sessErr.message);
+    log("  (likely because adminEmail is a real account with a different password — safe to ignore)");
+  } else {
+    const adminGet = await fetch(`${API_URL}/api/admin/feedback?category=ui&limit=10`, {
+      headers: { Authorization: `Bearer ${sess.session.access_token}` },
+    });
+    if (adminGet.status === 200) {
+      const body = await adminGet.json();
+      if (body.items?.length >= 1 && body.counts?.ui >= 1) {
+        ok(`admin GET returns items.length=${body.items.length}, counts.ui=${body.counts.ui}`);
+      } else {
+        fail(`admin GET shape unexpected: ${JSON.stringify(body).slice(0, 200)}`);
+      }
+    } else {
+      fail(`admin GET expected 200, got ${adminGet.status}`);
+    }
+  }
+
+  // 정리: feedback은 항상 청소(이 스크립트가 만든 행), user/allowed_emails는 우리가 만든 것만 삭제
+  await admin.from("feedback").delete().eq("user_id", adminUser.id);
+  if (createdAdmin) {
+    await admin.auth.admin.deleteUser(adminUser.id);
+    log("  cleaned up freshly-created admin user");
+  } else {
+    log("  preserved pre-existing admin user (no deleteUser)");
+  }
+  if (!allowedEntryExisted) {
+    await admin.from("allowed_emails").delete().eq("email", adminEmail);
+  }
+}
+
+// pwtest 피드백 청소
+await admin.from("feedback").delete().eq("user_id", userId);
+
 await browser.close();
 
-// ── 9. Summary ─────────────────────────────────────────────────────────────
+// ── 10. Summary ────────────────────────────────────────────────────────────
 log("api calls observed in browser:", apiCalls.length);
 const byStatus = apiCalls.reduce((acc, c) => {
   const k = `${c.status}`; acc[k] = (acc[k] || 0) + 1; return acc;

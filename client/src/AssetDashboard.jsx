@@ -416,21 +416,21 @@ export default function AssetDashboard() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (ev) => {
+      const stagedHoldingIds = [];
       try {
         const data = JSON.parse(ev.target.result);
         if (!Array.isArray(data.holdings) || !Array.isArray(data.transactions))
           throw new Error("형식 오류");
         if (
           !window.confirm(
-            "현재 데이터를 덮어씁니다 (기존 보유 종목·거래 내역 모두 삭제). 진행할까요?"
+            `백업에서 ${data.holdings.length}개 종목, ${data.transactions.length}개 거래를 가져옵니다.\n\n` +
+            `성공 시 현재 데이터는 모두 교체됩니다. 중간에 실패하면 기존 데이터는 그대로 유지되고 새로 추가된 항목만 정리됩니다.\n\n` +
+            `진행할까요?`
           )
         )
           return;
-        // 기존 데이터 삭제 (CASCADE)
-        for (const h of holdingsRawDb) {
-          await removeHoldingRemote(h.id);
-        }
-        // 신규 holdings 추가 → 매핑 (old id → new id)
+
+        // 1) 새 holdings + transactions를 먼저 모두 stage
         const idMap = new Map();
         for (const h of data.holdings) {
           const created = await addHoldingRemote({
@@ -439,8 +439,8 @@ export default function AssetDashboard() {
             name: h.name,
           });
           idMap.set(h.id, created.id);
+          stagedHoldingIds.push(created.id);
         }
-        // transactions 추가 (holdingId 매핑)
         for (const t of data.transactions) {
           const newHoldingId = idMap.get(t.holdingId);
           if (newHoldingId == null) continue;
@@ -453,10 +453,23 @@ export default function AssetDashboard() {
             fee: t.fee || 0,
           });
         }
+
+        // 2) 신규 stage 성공. 이제 기존 데이터 삭제 (스테이징 시점 스냅샷 사용).
+        const oldHoldings = holdingsRawDb.filter((h) => !stagedHoldingIds.includes(h.id));
+        for (const h of oldHoldings) {
+          await removeHoldingRemote(h.id);
+        }
+        setCurrentPrices({});
+
+        // 3) settings는 안전 (overwrite)
         if (data.target) await saveTarget(data.target);
         if (data.fxRate) await saveFxRate(data.fxRate);
       } catch (err) {
-        alert("가져오기 실패: " + err.message);
+        // 신규 stage 도중 실패 → 추가된 부분만 롤백, 기존 유지
+        for (const id of stagedHoldingIds) {
+          try { await removeHoldingRemote(id); } catch {}
+        }
+        alert("가져오기 실패: " + err.message + "\n기존 데이터는 유지되었습니다.");
       }
     };
     reader.readAsText(file);

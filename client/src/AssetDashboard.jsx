@@ -1208,21 +1208,21 @@ function HoldingRow({ h, fxRate, onOpenDetail, onRefresh, onDelete, onManualPric
           )}
           <button
             onClick={onOpenDetail}
-            className="opacity-0 group-hover:opacity-100 transition p-1 text-slate-500 hover:text-slate-200"
+            className="opacity-60 group-hover:opacity-100 transition p-1 text-slate-500 hover:text-slate-200"
             title="거래 내역"
           >
             <History size={12} />
           </button>
           <button
             onClick={onRefresh}
-            className="opacity-0 group-hover:opacity-100 transition p-1 text-slate-500 hover:text-slate-200"
+            className="opacity-60 group-hover:opacity-100 transition p-1 text-slate-500 hover:text-slate-200"
             title="시세 갱신"
           >
             <RefreshCw size={12} />
           </button>
           <button
             onClick={onDelete}
-            className="opacity-0 group-hover:opacity-100 transition p-1 text-slate-500 hover:text-rose-400"
+            className="opacity-60 group-hover:opacity-100 transition p-1 text-slate-500 hover:text-rose-400"
             title="삭제"
           >
             <Trash2 size={12} />
@@ -1760,7 +1760,7 @@ function TransactionRow({ tx, category, onEdit, onDelete }) {
           </div>
         )}
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+      <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition">
         <button
           onClick={onEdit}
           className="p-1.5 text-slate-500 hover:text-slate-200"

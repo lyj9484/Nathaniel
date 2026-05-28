@@ -183,6 +183,7 @@ export default function AssetDashboard() {
   } = useHoldings();
   const {
     transactions,
+    loading: transactionsLoading,
     add: addTransactionRemote,
     update: updateTransactionRemote,
     remove: removeTransactionRemote,
@@ -214,11 +215,15 @@ export default function AssetDashboard() {
     [holdingsRaw, transactions]
   );
 
+  // 모든 원격 상태가 로드된 후에만 가격/뉴스를 가져온다.
+  // settings만 보고 trigger하면 holdings가 늦게 끝났을 때 빈 배열로 closure가 갇혀
+  // 시세 fetch가 누락된다.
+  const allLoaded = !holdingsLoading && !transactionsLoading && !settingsLoading;
   useEffect(() => {
-    if (settingsLoading) return;
+    if (!allLoaded) return;
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsLoading]);
+  }, [allLoaded]);
 
   async function refreshAll() {
     setLoading(true);
@@ -497,7 +502,7 @@ export default function AssetDashboard() {
 
   const txDetailHolding = holdings.find((h) => h.id === txDetailHoldingId);
 
-  if (holdingsLoading) {
+  if (holdingsLoading || transactionsLoading || settingsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a0e1a] text-slate-400 text-sm">
         데이터 로딩 중…

@@ -641,10 +641,17 @@ export default function AssetDashboard() {
             </span>
           )}
           {errors.length > 0 && (
-            <span className="flex items-center gap-1.5 text-amber-400">
-              <AlertCircle size={12} /> {errors.length}건 조회 실패 (수동 입력
-              가능)
-            </span>
+            <div className="flex flex-col gap-1 w-full mt-1">
+              {errors.map((msg, i) => (
+                <span
+                  key={i}
+                  className="flex items-start gap-1.5 text-amber-400 text-[11px] bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1"
+                >
+                  <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                  <span className="break-all">{msg}</span>
+                </span>
+              ))}
+            </div>
           )}
         </div>
 

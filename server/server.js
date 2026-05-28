@@ -217,7 +217,7 @@ app.post("/api/stock/:symbol/analysis", async (req, res, next) => {
       return res.status(503).json({ error: "ai_disabled" });
     }
 
-    const aiKey = `stock-ai:${symbol}`;
+    const aiKey = `stock-ai:${req.user.id}:${symbol}`;
     const chartKey = `stock-chart:${symbol}:${period}`;
 
     let aiPart = force ? null : cache.get(aiKey);

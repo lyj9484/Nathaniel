@@ -21,7 +21,12 @@ import {
 } from "./analyze.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler, ValidationError } from "./lib/errors.js";
-import { NewsBodySchema, StockSymbolSchema, StockAnalysisBodySchema } from "./validators.js";
+import {
+  NewsBodySchema, StockSymbolSchema, StockAnalysisBodySchema,
+  FeedbackBodySchema, AdminFeedbackQuerySchema,
+} from "./validators.js";
+import { supabaseAdmin } from "./lib/supabaseAdmin.js";
+import { requireAdmin } from "./middleware/requireAdmin.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -229,6 +234,79 @@ app.post("/api/stock/:symbol/analysis", async (req, res, next) => {
       analyst: aiPart.analyst,
       analysis: aiPart.analysis,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// 사용자 1명당 분당 1건 피드백 (글로벌 60/min과 별개)
+const feedbackLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `feedback:${req.user?.id || req.ip}`,
+  message: { error: "rate_limit", message: "1분에 1건만 제출할 수 있습니다" },
+});
+
+app.post("/api/feedback", feedbackLimiter, async (req, res, next) => {
+  try {
+    const parsed = FeedbackBodySchema.safeParse(req.body);
+    if (!parsed.success) throw new ValidationError(parsed.error.flatten());
+
+    const userAgent = (req.headers["user-agent"] || "").slice(0, 1000);
+    const { category, body, page_url } = parsed.data;
+
+    const sb = supabaseAdmin();
+    const { data, error } = await sb
+      .from("feedback")
+      .insert({
+        user_id: req.user.id,
+        email: req.user.email,
+        category,
+        body,
+        user_agent: userAgent || null,
+        page_url: page_url || null,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    res.status(201).json({ id: data.id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/admin/feedback", requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = AdminFeedbackQuerySchema.safeParse(req.query);
+    if (!parsed.success) throw new ValidationError(parsed.error.flatten());
+    const { category, limit, offset } = parsed.data;
+
+    const sb = supabaseAdmin();
+
+    // items: category 필터 + created_at desc + 페이지네이션
+    let query = sb
+      .from("feedback")
+      .select("id, email, category, body, user_agent, page_url, created_at")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (category) query = query.eq("category", category);
+    const itemsRes = await query;
+    if (itemsRes.error) throw itemsRes.error;
+
+    // counts: 카테고리별 전체 개수 (group by 결과를 5개 키로 펼침)
+    const { data: countsRaw, error: countsErr } = await sb
+      .from("feedback")
+      .select("category", { count: "exact", head: false });
+    if (countsErr) throw countsErr;
+    const counts = { design: 0, ui: 0, ux: 0, price_data: 0, other: 0, total: 0 };
+    for (const row of countsRaw) {
+      counts[row.category] = (counts[row.category] || 0) + 1;
+      counts.total += 1;
+    }
+
+    res.json({ items: itemsRes.data, counts });
   } catch (e) {
     next(e);
   }

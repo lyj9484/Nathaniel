@@ -551,6 +551,9 @@ export default function AssetDashboard() {
     );
   }
 
+  // 신규 사용자: holdings가 0이면 차트/뉴스 숨기고 환영 화면만 표시
+  const isEmpty = holdingsRawDb.length === 0;
+
   return (
     <div className="min-h-screen bg-[#0a0e1a] text-slate-100 font-sans">
       <style>{`
@@ -734,8 +737,8 @@ export default function AssetDashboard() {
           </div>
         </div>
 
-        {/* 통합 탭: 차트 그리드 */}
-        {tab === "all" && (
+        {/* 통합 탭: 차트 그리드 — 빈 상태에서는 숨김 */}
+        {tab === "all" && !isEmpty && (
           <>
             {/* 1단: 파이 + 목표vs실제 */}
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -931,8 +934,26 @@ export default function AssetDashboard() {
           </>
         )}
 
-        {/* 뉴스 + AI 분석 — 어느 탭이든 표시되며 활성 탭에 따라 필터링 */}
-        <NewsSection holdings={holdingsRaw} activeTab={tab} />
+        {/* 뉴스 + AI 분석 — 빈 상태에서는 호출 안 함 (AI quota 보존) */}
+        {!isEmpty && <NewsSection holdings={holdingsRaw} activeTab={tab} />}
+
+        {isEmpty && (
+          <section className="bg-slate-900/40 border border-slate-800 rounded-2xl p-10 mb-10 text-center">
+            <Wallet size={36} className="mx-auto text-amber-400 mb-4" />
+            <h2 className="text-xl font-semibold mb-2">환영합니다 👋</h2>
+            <p className="text-sm text-slate-400 mb-6">
+              아직 등록된 종목이 없습니다. 첫 종목을 추가해 시작하세요.
+              <br />
+              한국 주식, 미국 주식, 코인을 한 곳에서 관리할 수 있습니다.
+            </p>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-500 text-slate-950 font-medium hover:bg-amber-400 transition"
+            >
+              <Plus size={16} /> 첫 종목 추가하기
+            </button>
+          </section>
+        )}
 
         {/* 보유 종목 리스트 */}
         <section className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden mb-10">

@@ -949,7 +949,7 @@ export default function AssetDashboard() {
             </div>
           ) : (
             <div className="divide-y divide-slate-800">
-              <div className="grid grid-cols-12 gap-3 px-6 py-3 text-[11px] uppercase tracking-wider text-slate-500">
+              <div className="hidden sm:grid grid-cols-12 gap-3 px-6 py-3 text-[11px] uppercase tracking-wider text-slate-500">
                 <div className="col-span-4">종목</div>
                 <div className="col-span-2 text-right">수량</div>
                 <div className="col-span-2 text-right">평단</div>
@@ -1140,10 +1140,10 @@ function HoldingRow({ h, fxRate, onOpenDetail, onRefresh, onDelete, onManualPric
 
   return (
     <div className="hover:bg-slate-900/40 transition group">
-      <div className="grid grid-cols-12 gap-3 px-6 pt-4 items-center">
+      <div className="flex flex-col gap-2 px-6 pt-4 sm:grid sm:grid-cols-12 sm:gap-3 sm:items-center">
         <button
           onClick={onOpenDetail}
-          className="col-span-4 flex items-center gap-3 text-left"
+          className="sm:col-span-4 flex items-center gap-3 text-left"
         >
           <span
             className="w-1 h-8 rounded-full"
@@ -1163,17 +1163,23 @@ function HoldingRow({ h, fxRate, onOpenDetail, onRefresh, onDelete, onManualPric
             </div>
           </div>
         </button>
-        <div className="col-span-2 text-right tabular text-sm">
-          {formatNumber(h.quantity, h.category === "crypto" ? 4 : 0)}
+        <div className="flex justify-between sm:block sm:col-span-2 sm:text-right tabular text-sm">
+          <span className="sm:hidden text-xs text-slate-500">수량</span>
+          <span>{formatNumber(h.quantity, h.category === "crypto" ? 4 : 0)}</span>
         </div>
-        <div className="col-span-2 text-right tabular text-sm text-slate-400">
-          {c.suffix}
-          {formatNumber(
-            h.avgPrice,
-            h.category === "crypto" ? 2 : h.category === "us" ? 2 : 0
-          )}
+        <div className="flex justify-between sm:block sm:col-span-2 sm:text-right tabular text-sm text-slate-400">
+          <span className="sm:hidden text-xs text-slate-500">평단</span>
+          <span>
+            {c.suffix}
+            {formatNumber(
+              h.avgPrice,
+              h.category === "crypto" ? 2 : h.category === "us" ? 2 : 0
+            )}
+          </span>
         </div>
-        <div className="col-span-2 text-right tabular text-sm">
+        <div className="flex justify-between sm:block sm:col-span-2 sm:text-right tabular text-sm">
+          <span className="sm:hidden text-xs text-slate-500">현재가</span>
+          <span>
           {h.currentPrice != null ? (
             <>
               {c.suffix}
@@ -1194,8 +1200,10 @@ function HoldingRow({ h, fxRate, onOpenDetail, onRefresh, onDelete, onManualPric
               수동 입력
             </button>
           )}
+          </span>
         </div>
-        <div className="col-span-2 flex items-center justify-end gap-2">
+        <div className="flex justify-between items-center sm:col-span-2 sm:justify-end gap-2">
+          <span className="sm:hidden text-xs text-slate-500">손익률</span>
           {pnlRate != null && (
             <span
               className={`tabular text-sm font-medium ${
@@ -1230,9 +1238,9 @@ function HoldingRow({ h, fxRate, onOpenDetail, onRefresh, onDelete, onManualPric
         </div>
       </div>
       {/* 서브 라인: 총 매수금액 / 실현손익 / 평가손익 */}
-      <div className="grid grid-cols-12 gap-3 px-6 pb-4 pt-1.5 text-[11px] text-slate-500">
-        <div className="col-span-4" />
-        <div className="col-span-8 flex justify-end gap-4 tabular">
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 px-6 pb-4 pt-1.5 text-[11px] text-slate-500">
+        <div className="hidden sm:block sm:col-span-4" />
+        <div className="sm:col-span-8 flex flex-wrap justify-between sm:justify-end gap-4 tabular">
           <span>
             총 매수{" "}
             <span className="text-slate-300">{formatKRWShort(totalBuy)}</span>

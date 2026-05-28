@@ -21,6 +21,7 @@ import {
 } from "./analyze.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { errorHandler, ValidationError } from "./lib/errors.js";
+import { validateEnv } from "./lib/env.js";
 import {
   NewsBodySchema, StockSymbolSchema, StockAnalysisBodySchema,
   FeedbackBodySchema, AdminFeedbackQuerySchema,
@@ -28,8 +29,12 @@ import {
 import { supabaseAdmin } from "./lib/supabaseAdmin.js";
 import { requireAdmin } from "./middleware/requireAdmin.js";
 
+validateEnv();
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
+
+app.set("trust proxy", 1);
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:5173")
   .split(",").map((s) => s.trim());
@@ -37,7 +42,15 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:5173")
 app.use(helmet());
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: false }));
 app.use(express.json({ limit: "10kb" }));
-app.use(rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
+app.use(rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id
+    ? `global:user:${req.user.id}`
+    : `global:ip:${ipKeyGenerator(req.ip)}`,
+}));
 
 // 5분 메모리 캐시
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });

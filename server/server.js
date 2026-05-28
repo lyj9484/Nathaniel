@@ -94,7 +94,11 @@ app.get("/api/health", (req, res) => {
 app.use("/api", authMiddleware);
 
 app.get("/api/price/:symbol", async (req, res) => {
-  const { symbol } = req.params;
+  const symbolParse = StockSymbolSchema.safeParse(req.params.symbol);
+  if (!symbolParse.success) {
+    return res.status(400).json({ error: "invalid_symbol" });
+  }
+  const symbol = symbolParse.data;
   try {
     const data = await getCachedPrice(symbol);
     res.json(data);
@@ -105,14 +109,23 @@ app.get("/api/price/:symbol", async (req, res) => {
 });
 
 app.get("/api/prices", async (req, res) => {
-  const symbols = String(req.query.symbols || "")
+  const rawSymbols = String(req.query.symbols || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (symbols.length === 0) {
-    return res
-      .status(400)
-      .json({ error: "symbols query parameter required (comma-separated)" });
+  if (rawSymbols.length === 0) {
+    return res.status(400).json({ error: "symbols query parameter required (comma-separated)" });
+  }
+  if (rawSymbols.length > 50) {
+    return res.status(400).json({ error: "too_many_symbols", max: 50 });
+  }
+  const symbols = [];
+  for (const s of rawSymbols) {
+    const parsed = StockSymbolSchema.safeParse(s);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_symbol", symbol: s });
+    }
+    symbols.push(parsed.data);
   }
   const results = await Promise.allSettled(symbols.map(getCachedPrice));
   const out = symbols.map((symbol, i) => {
@@ -328,7 +341,7 @@ app.get("/api/admin/feedback", requireAdmin, async (req, res, next) => {
 });
 
 // 캐시 비우기 (개발용)
-app.post("/api/cache/clear", (req, res) => {
+app.post("/api/cache/clear", requireAdmin, (req, res) => {
   cache.flushAll();
   res.json({ ok: true });
 });

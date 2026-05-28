@@ -30,12 +30,16 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   History,
+  MessageSquare,
 } from "lucide-react";
 import NewsSection from "./NewsSection.jsx";
 import StockAnalysis from "./StockAnalysis.jsx";
 import { useHoldings, useTransactions, useSettings } from "./lib/useRemoteState.js";
 import { signOut, useAuth } from "./AuthProvider.jsx";
 import { apiPost, apiGet, RateLimitError } from "./lib/api.js";
+import FeedbackModal from "./FeedbackModal.jsx";
+import { isAdminEmail } from "./lib/feedback.js";
+import { navigate } from "./lib/useHashRoute.js";
 
 /* ──────────────────────────────────────────────────────────
    자산관리 대시보드 v2
@@ -197,6 +201,7 @@ export default function AssetDashboard() {
   const [tab, setTab] = useState("all"); // all | kr | us | crypto
   const [showAdd, setShowAdd] = useState(false);
   const [showTarget, setShowTarget] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [txDetailHoldingId, setTxDetailHoldingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -571,13 +576,24 @@ export default function AssetDashboard() {
               {loading ? "조회중..." : "시세 새로고침"}
             </button>
             {user && (
-              <button
-                onClick={signOut}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-slate-700 hover:border-slate-500 text-xs transition"
-                title="로그아웃"
-              >
-                {user.email} · 로그아웃
-              </button>
+              <>
+                {isAdminEmail(user.email) && (
+                  <button
+                    onClick={() => navigate("/admin/feedback")}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-amber-500 text-amber-400 hover:bg-amber-500/10 text-xs transition"
+                    title="피드백 관리"
+                  >
+                    Admin
+                  </button>
+                )}
+                <button
+                  onClick={signOut}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-slate-700 hover:border-slate-500 text-xs transition"
+                  title="로그아웃"
+                >
+                  {user.email} · 로그아웃
+                </button>
+              </>
             )}
           </div>
         </header>
@@ -904,6 +920,16 @@ export default function AssetDashboard() {
           )}
         </section>
 
+        <div className="flex justify-center mb-6">
+          <button
+            onClick={() => setShowFeedback(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-slate-700 text-slate-300 hover:border-amber-500 hover:text-amber-400 text-sm transition"
+          >
+            <MessageSquare size={14} />
+            피드백 보내기
+          </button>
+        </div>
+
         <footer className="text-[11px] text-slate-600 text-center leading-relaxed">
           시세 데이터: 백엔드{" "}
           <code className="text-slate-500">{API_BASE || "/api (vite proxy)"}</code>{" "}
@@ -922,6 +948,11 @@ export default function AssetDashboard() {
             setShowAdd(false);
           }}
         />
+      )}
+
+      {/* 피드백 모달 */}
+      {showFeedback && (
+        <FeedbackModal onClose={() => setShowFeedback(false)} />
       )}
 
       {/* 목표 배분 모달 */}

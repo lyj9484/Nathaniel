@@ -3,8 +3,8 @@ import { supabase } from "./supabase.js";
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 export class RateLimitError extends Error {
-  constructor({ used, limit, resetAt }) {
-    super("rate_limit");
+  constructor({ message, used, limit, resetAt }) {
+    super(message || "잠시 후 다시 시도해주세요");
     this.code = "rate_limit";
     this.used = used;
     this.limit = limit;
@@ -35,9 +35,20 @@ export async function apiPost(path, body) {
 }
 
 async function handle(res) {
+  if (res.status === 401) {
+    // JWT 만료 또는 무효. 세션 정리하고 LoginPage로 강제 복귀.
+    await supabase.auth.signOut().catch(() => {});
+    const err = new Error("세션이 만료되었습니다. 다시 로그인해주세요.");
+    err.code = "unauthenticated";
+    err.status = 401;
+    throw err;
+  }
   if (res.status === 429) {
     const body = await res.json().catch(() => ({}));
-    throw new RateLimitError(body.details || {});
+    throw new RateLimitError({
+      message: body.message,
+      ...(body.details || {}),
+    });
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "unknown" }));

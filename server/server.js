@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import NodeCache from "node-cache";
 
 import {
@@ -245,7 +245,9 @@ const feedbackLimiter = rateLimit({
   max: 1,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `feedback:${req.user?.id || req.ip}`,
+  keyGenerator: (req) => req.user?.id
+    ? `feedback:user:${req.user.id}`
+    : `feedback:ip:${ipKeyGenerator(req.ip)}`,
   message: { error: "rate_limit", message: "1분에 1건만 제출할 수 있습니다" },
 });
 

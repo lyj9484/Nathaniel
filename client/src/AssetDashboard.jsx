@@ -463,41 +463,69 @@ export default function AssetDashboard() {
     e.target.value = "";
   }
 
+  /* ───── 사용자에게 보이는 에러 헬퍼 ───── */
+  function pushError(msg) {
+    setErrors((prev) => [...prev, msg]);
+    setTimeout(() => setErrors((prev) => prev.slice(1)), 5000);
+  }
+
   /* ───── 거래 CRUD ───── */
   async function addTransaction(tx) {
-    await addTransactionRemote(tx);
+    try {
+      await addTransactionRemote(tx);
+    } catch (e) {
+      pushError("거래 추가 실패: " + (e.message || "알 수 없는 오류"));
+      throw e; // 호출자(폼)가 인지하도록 재던짐
+    }
   }
   async function updateTransaction(id, patch) {
-    await updateTransactionRemote(id, patch);
+    try {
+      await updateTransactionRemote(id, patch);
+    } catch (e) {
+      pushError("거래 수정 실패: " + (e.message || "알 수 없는 오류"));
+      throw e;
+    }
   }
   async function deleteTransaction(id) {
     if (!window.confirm("이 거래를 삭제할까요?")) return;
-    await removeTransactionRemote(id);
+    try {
+      await removeTransactionRemote(id);
+    } catch (e) {
+      pushError("거래 삭제 실패: " + (e.message || "알 수 없는 오류"));
+    }
   }
 
   /* ───── 종목 CRUD ───── */
   async function addHolding({ category, symbol, name, initialQuantity, initialPrice, initialDate }) {
-    const created = await addHoldingRemote({ category, symbol, name });
-    if (initialQuantity > 0 && initialPrice > 0) {
-      await addTransactionRemote({
-        holdingId: created.id,
-        type: "buy",
-        quantity: initialQuantity,
-        price: initialPrice,
-        date: initialDate || new Date().toISOString().slice(0, 10),
-        fee: 0,
-      });
+    try {
+      const created = await addHoldingRemote({ category, symbol, name });
+      if (initialQuantity > 0 && initialPrice > 0) {
+        await addTransactionRemote({
+          holdingId: created.id,
+          type: "buy",
+          quantity: initialQuantity,
+          price: initialPrice,
+          date: initialDate || new Date().toISOString().slice(0, 10),
+          fee: 0,
+        });
+      }
+    } catch (e) {
+      pushError("종목 추가 실패: " + (e.message || "알 수 없는 오류"));
+      throw e;
     }
   }
   async function deleteHolding(id) {
     if (!window.confirm("이 종목과 관련 거래 내역을 모두 삭제합니다.")) return;
-    // DB의 holdings 삭제 시 CASCADE로 transactions도 함께 삭제됨
-    await removeHoldingRemote(id);
-    setCurrentPrices((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+    try {
+      await removeHoldingRemote(id);
+      setCurrentPrices((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (e) {
+      pushError("종목 삭제 실패: " + (e.message || "알 수 없는 오류"));
+    }
   }
 
   const txDetailHolding = holdings.find((h) => h.id === txDetailHoldingId);
@@ -1597,8 +1625,12 @@ function TransactionsModal({
             category={holding.category}
             onCancel={() => setAdding(false)}
             onSubmit={async (tx) => {
-              await onAdd(tx);
-              setAdding(false);
+              try {
+                await onAdd(tx);
+                setAdding(false);
+              } catch {
+                // 부모가 toast 표시. 폼은 열린 채로 유지해 재시도 가능.
+              }
             }}
           />
         )}
@@ -1618,8 +1650,12 @@ function TransactionsModal({
                 initial={tx}
                 onCancel={() => setEditingId(null)}
                 onSubmit={async (patch) => {
-                  await onUpdate(tx.id, patch);
-                  setEditingId(null);
+                  try {
+                    await onUpdate(tx.id, patch);
+                    setEditingId(null);
+                  } catch {
+                    // 부모가 toast. 폼 유지.
+                  }
                 }}
               />
             ) : (

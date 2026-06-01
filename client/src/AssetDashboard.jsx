@@ -27,6 +27,7 @@ import {
   Upload,
   RotateCcw,
   Pencil,
+  Menu,
   ArrowDownCircle,
   ArrowUpCircle,
   History,
@@ -203,6 +204,7 @@ export default function AssetDashboard() {
   const [showAdd, setShowAdd] = useState(false);
   const [showTarget, setShowTarget] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [txDetailHoldingId, setTxDetailHoldingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -581,7 +583,17 @@ export default function AssetDashboard() {
               자산관리<span className="text-amber-400">.</span>
             </h1>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          {/* 햄버거 (모바일) */}
+          <button
+            onClick={() => setMobileMenuOpen((v) => !v)}
+            className="sm:hidden flex items-center justify-center w-10 h-10 rounded-full border border-slate-700 hover:border-slate-500 transition"
+            aria-label={mobileMenuOpen ? "메뉴 닫기" : "메뉴 열기"}
+          >
+            {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+
+          {/* 데스크탑 가로 정렬 (sm 이상) */}
+          <div className="hidden sm:flex items-center gap-2 flex-wrap">
             <button
               onClick={exportJSON}
               className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-slate-700 hover:border-slate-500 text-xs transition"
@@ -596,13 +608,6 @@ export default function AssetDashboard() {
             >
               <Upload size={13} /> 가져오기
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={importJSON}
-            />
             <button
               onClick={resetAllData}
               className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-rose-900/60 hover:border-rose-700 text-xs text-rose-300 transition"
@@ -645,7 +650,72 @@ export default function AssetDashboard() {
               </>
             )}
           </div>
+
+          {/* 공유 파일 input — 헤더 최상위 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={importJSON}
+          />
         </header>
+
+        {/* 모바일 메뉴 dropdown */}
+        {mobileMenuOpen && (
+          <div className="sm:hidden bg-slate-900/95 border border-slate-800 rounded-2xl p-2 mb-6 flex flex-col">
+            <button
+              onClick={() => { exportJSON(); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm hover:bg-slate-800 w-full text-left transition"
+            >
+              <Download size={14} /> 내보내기
+            </button>
+            <button
+              onClick={() => { fileInputRef.current?.click(); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm hover:bg-slate-800 w-full text-left transition"
+            >
+              <Upload size={14} /> 가져오기
+            </button>
+            <button
+              onClick={() => { resetAllData(); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm text-rose-300 hover:bg-rose-500/10 w-full text-left transition"
+            >
+              <RotateCcw size={14} /> 초기화
+            </button>
+            <button
+              onClick={() => { setShowTarget(true); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm hover:bg-slate-800 w-full text-left transition"
+            >
+              <Target size={14} /> 목표 배분
+            </button>
+            <button
+              onClick={() => { refreshAll(); setMobileMenuOpen(false); }}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm bg-slate-100 text-slate-900 hover:bg-white font-medium w-full text-left transition disabled:opacity-50 mt-1"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              {loading ? "조회중..." : "시세 새로고침"}
+            </button>
+            {user && (
+              <>
+                {isAdminEmail(user.email) && (
+                  <button
+                    onClick={() => { navigate("/admin/feedback"); setMobileMenuOpen(false); }}
+                    className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm text-amber-400 hover:bg-amber-500/10 w-full text-left transition mt-1"
+                  >
+                    Admin
+                  </button>
+                )}
+                <button
+                  onClick={() => { signOut(); setMobileMenuOpen(false); }}
+                  className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs hover:bg-slate-800 w-full text-left transition border-t border-slate-800 mt-1 pt-3"
+                >
+                  {user.email} · 로그아웃
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* 마지막 업데이트 & 에러 */}
         <div className="mb-8 flex items-center gap-3 text-xs flex-wrap">

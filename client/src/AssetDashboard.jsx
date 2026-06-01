@@ -742,7 +742,7 @@ export default function AssetDashboard() {
         </div>
 
         {/* 상단 요약 카드 */}
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
           <SummaryCard
             icon={<Wallet size={12} />}
             label="총 자산 (KRW 환산)"

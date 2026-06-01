@@ -381,7 +381,7 @@ export default function AssetDashboard() {
         "모든 데이터를 삭제합니다.\n(보유 종목, 거래 내역, 목표 배분 모두 삭제)\n진행할까요?"
       )
     )
-      return;
+      return false;
     // holdings 삭제 시 CASCADE로 transactions도 함께 삭제됨
     for (const h of holdingsRawDb) {
       await removeHoldingRemote(h.id);
@@ -389,6 +389,7 @@ export default function AssetDashboard() {
     setCurrentPrices({});
     await saveTarget({ kr: 30, us: 50, crypto: 20 });
     await saveFxRate(1380);
+    return true;
   }
 
   function exportJSON() {
@@ -677,7 +678,9 @@ export default function AssetDashboard() {
               <Upload size={14} /> 가져오기
             </button>
             <button
-              onClick={() => { resetAllData(); setMobileMenuOpen(false); }}
+              onClick={async () => {
+                if (await resetAllData()) setMobileMenuOpen(false);
+              }}
               className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm text-rose-300 hover:bg-rose-500/10 w-full text-left transition"
             >
               <RotateCcw size={14} /> 초기화

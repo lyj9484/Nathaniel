@@ -3,6 +3,8 @@ import { webcrypto } from "node:crypto";
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
+import { WebSocket } from "ws";
+if (!globalThis.WebSocket) globalThis.WebSocket = WebSocket;
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
